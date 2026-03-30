@@ -70,7 +70,7 @@ class ImageProcessor:
         cv.line(img, (center_x, center_y), point, (255, 0, 0), 2)
         
         # Draw swipe action
-        from_point, to_point, _ = actions
+        from_point, to_point, _, _ = actions
         cv.line(img, from_point, to_point, (0, 0, 255), 2)
         
         # Draw horizontal line at the center of the image

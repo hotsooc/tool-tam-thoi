@@ -23,7 +23,11 @@ class Calculator:
         new_b = (b[0], b[1] + n_plus)
         
         to_point = Calculator.find_point_C(from_point, new_b, 50)
-        return (from_point, to_point, distance / velocity * 1000)
+        
+        # Vector di chuyển thực tế của nhân vật trong game (dựa trên tỷ lệ pixel màn hình)
+        move_vector = (b[0] - a[0], b[1] - a[1])
+        
+        return (from_point, to_point, distance / velocity * 1000, move_vector)
 
     @staticmethod
     def find_point_C(A, B, AC_length):
