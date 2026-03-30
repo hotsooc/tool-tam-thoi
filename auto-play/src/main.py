@@ -41,7 +41,11 @@ scale  = 1.0
 
 window_capture = WindowCapture(window_name, scale)
 image_processor = ImageProcessor(model_path, velocity)
-adb_control = AdbHelper("emulator-5554")
+adb_control = AdbHelper()
+if not adb_control.device_id:
+    print("[ERROR] Khong tim thay thiet bi gia lap nao! Kiem tra lai LDPlayer va ADB.")
+else:
+    print(f"[INFO] Da ket noi thanh cong voi gia lap: {adb_control.device_id}")
 
 MAX_RADIUS = 3000 # Giới hạn 3000 pixel ảo trong game (~20-30 lần vuốt)
 tether = VirtualTether(MAX_RADIUS)
