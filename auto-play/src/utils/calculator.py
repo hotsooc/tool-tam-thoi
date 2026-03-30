@@ -18,13 +18,11 @@ class Calculator:
         
         control_height = height - height*0.25
         n_plus = control_height - a[1]
-        print(n_plus)
         
         from_point = (int(a[0]), int(control_height))
         new_b = (b[0], b[1] + n_plus)
         
         to_point = Calculator.find_point_C(from_point, new_b, 50)
-        print(from_point, to_point)
         return (from_point, to_point, distance / velocity * 1000)
 
     @staticmethod
@@ -33,10 +31,10 @@ class Calculator:
         x_A, y_A = A
         x_B, y_B = B
         
-
         # Độ dài AB
         AB_length = math.sqrt((x_B - x_A) ** 2 + (y_B - y_A) ** 2)
-        print(AB_length)
+        if AB_length == 0:
+            return A
 
         # Vector AB (hướng từ A tới B)
         direction_vector = ((x_B - x_A) / AB_length, (y_B - y_A) / AB_length)

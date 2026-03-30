@@ -49,8 +49,7 @@ class WindowCapture:
         return img
 
     def generate_image_dataset(self, interval_seconds, limit = 30):
-        if not os.path.exists("images"):
-            os.mkdir("images")
+        os.makedirs("images", exist_ok=True)
         while(True and len(os.listdir('images')) < limit):
             img = self.get_screenshot()
             im = Image.fromarray(img[..., [2, 1, 0]])
