@@ -4,10 +4,6 @@ pywin32
 ultralytics
 numpy
 torch
-time
-ctypes
-wintypes
-math
 pandas
 scipy
 matplotlib
