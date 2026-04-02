@@ -36,11 +36,7 @@ velocity = 80
 sleep_time = 2.5
 
 image_processor = ImageProcessor(model_path, velocity)
-adb_control = AdbHelper()
-if not adb_control.device_id:
-    print("[ERROR] Khong tim thay thiet bi gia lap nao! Kiem tra lai LDPlayer va ADB.")
-else:
-    print(f"[INFO] Da ket noi thanh cong voi gia lap: {adb_control.device_id}")
+adb_control = AdbHelper("emulator-5554")
 
 MAX_RADIUS = 3000
 tether = VirtualTether(MAX_RADIUS)
