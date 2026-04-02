@@ -6,7 +6,7 @@ import cv2 as cv
 from utils.image_processor import ImageProcessor
 from utils.adb_control import AdbHelper
 
-DEBUG = True
+DEBUG = False
 
 class VirtualTether:
     def __init__(self, max_radius):
@@ -32,11 +32,11 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 model_path = os.path.join(current_dir, "best.pt")
 screen_path = os.path.join(current_dir, "screen.png")
 
-velocity = 80
-sleep_time = 2.5
+velocity = 150
+sleep_time = 1
 
 image_processor = ImageProcessor(model_path, velocity)
-adb_control = AdbHelper("emulator-5554")
+adb_control = AdbHelper("127.0.0.1:5555")
 
 MAX_RADIUS = 3000
 tether = VirtualTether(MAX_RADIUS)
@@ -53,7 +53,7 @@ if DEBUG:
         exit(1)
     print(f"[DEBUG] Đang chạy với ảnh tĩnh: {screen_path}")
 else:
-    print(f"[LIVE] Đang chạy với ADB device: emulator-5554")
+    print(f"[LIVE] Đang chạy với ADB device: ")
 
 print("Bot started...")
 print("Nhấn Ctrl+C để thoát\n")
