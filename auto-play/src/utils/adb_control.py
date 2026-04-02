@@ -1,11 +1,29 @@
 import os
 import subprocess
 import cv2 as cv
+import time
+import os
 
 class AdbHelper:
     def __init__(self, device_id=None):
-        self.device_id = device_id
+        # Tự động tìm thư mục adb của LDPlayer nếu không có trong PATH
+        self.adb_path = r"F:\LDPlayer\LDPlayer9\adb.exe" if os.path.exists(r"F:\LDPlayer\LDPlayer9\adb.exe") else "adb"
         
+        self.device_id = device_id
+        if not self.device_id:
+            self.device_id = self.auto_detect_device()
+            
+    def auto_detect_device(self):
+        # Thu tu dong ket noi toi cong mac dinh cua LDPlayer
+        subprocess.run([self.adb_path, 'connect', '127.0.0.1:5555'], capture_output=True)
+        # Quet thu xem co device nao khong
+        result = subprocess.run([self.adb_path, 'devices'], capture_output=True, text=True)
+        lines = result.stdout.strip().split('\n')[1:] # Bo qua dong 'List of devices attached'
+        for line in lines:
+            if 'device' in line and 'offline' not in line:
+                return line.split()[0]
+        return None # Khong tim thay
+
     def tap(self, x, y):
         self.shell(['input', 'tap', str(x), str(y)])
         
@@ -15,7 +33,8 @@ class AdbHelper:
         self.shell(['input', 'swipe', str(x1), str(y1), str(x2), str(y2), str(duration)])
         
     def shell(self, cmd_args):
-        base_cmd = ['adb']
+        # cmd_args phải là một list
+        base_cmd = [self.adb_path]
         if self.device_id:
             base_cmd.extend(['-s', self.device_id])
         base_cmd.append('shell')
@@ -35,10 +54,8 @@ class AdbHelper:
         return result.stdout if result else ""
     
     def get_screenshot(self):
-        # Lưu screen.png cùng thư mục với file adb_control.py (tránh đọc ảnh cũ)
-        save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'screen.png')
-
-        base_adb = ['adb']
+        # Capture screen, pull and remove. Using adb directly, not via shell.
+        base_adb = [self.adb_path]
         if self.device_id:
             base_adb.extend(['-s', self.device_id])
 
