@@ -19,12 +19,12 @@ model_path = os.path.join(current_dir, "best.pt")
 screen_path = os.path.join(current_dir, "screen.png")
 
 # Bot settings
-VELOCITY       = 180    # Hạ vận tốc xuống một chút để ổn định hơn (Tốt hơn 300)
-MOVE_WAIT      = 0.15   # Tăng thời gian chờ sau di chuyển để nhân vật kịp tới nơi
-DIG_BURST      = 6      # Số lần tap trước khi kiểm tra lại (Burst tapping)
-DIG_INTERVAL   = 0.05   # Khoảng cách giữa các lần tap trong burst
-DIG_TIMEOUT    = 5.0    # Timeout cho 1 mục tiêu
-SCAN_INTERVAL  = 0.3    # Tăng thời gian quét giữa các lượt quét mới
+VELOCITY       = 180    
+MOVE_WAIT      = 0.12   # Giảm thêm một chút để mượt hơn
+DIG_BURST      = 2      # Giảm xuống 2 để kiểm tra thường xuyên hơn (mượt hơn)
+DIG_INTERVAL   = 0.02   # Tap cực nhanh trong burst
+DIG_TIMEOUT    = 5.0    
+SCAN_INTERVAL  = 0.05   # Quét liên tục, không có thời gian nghỉ khựng
 
 class BotThread(threading.Thread):
     def __init__(self, image_processor, adb_control, gui_app):
