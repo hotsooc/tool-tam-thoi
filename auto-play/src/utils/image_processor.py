@@ -123,13 +123,13 @@ class ImageProcessor:
         if length == 0:
             return from_point, from_point, 50
 
-        # Swipe 50px theo hướng mục tiêu
-        norm_dx = (dx / length) * 50
-        norm_dy = (dy / length) * 50
+        # Swipe 80px theo hướng mục tiêu (Tăng từ 50px để ổn định hơn)
+        norm_dx = (dx / length) * 80
+        norm_dy = (dy / length) * 80
         to_point = (int(from_point[0] + norm_dx), int(from_point[1] + norm_dy))
 
-        # Duration: Giảm xuống tối thiểu 50ms, tối đa 600ms để lao đi nhanh
-        duration = min(600, max(50, length / self.velocity * 1000))
+        # Duration: Tối thiểu 150ms để lệnh di chuyển thực sự có tác dụng
+        duration = min(800, max(150, length / self.velocity * 1000))
 
         return from_point, to_point, duration
 
