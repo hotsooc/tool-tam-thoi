@@ -6,41 +6,34 @@ import cv2 as cv
 from utils.image_processor import ImageProcessor
 from utils.adb_control import AdbHelper
 
-DEBUG = False
+# ============================================================
+# DEBUG MODE
+# True  = dùng ảnh tĩnh screen.png, không cần LDPlayer/ADB
+# False = chạy thật với ADB
+# ============================================================
+DEBUG = True
 
-class VirtualTether:
-    def __init__(self, max_radius):
-        self.x = 0.0
-        self.y = 0.0
-        self.max_radius = max_radius
-        
-    def add_movement(self, dx, dy):
-        self.x += dx
-        self.y += dy
-        
-    def get_distance(self):
-        return math.sqrt(self.x**2 + self.y**2)
-        
-    def is_out_of_bounds(self):
-        return self.get_distance() > self.max_radius
-
-    def reset_position(self):
-        self.x = 0.0
-        self.y = 0.0
-
+# ============================================================
+# SETUP
+# ============================================================
 current_dir = os.path.dirname(os.path.abspath(__file__))
 model_path = os.path.join(current_dir, "best.pt")
 screen_path = os.path.join(current_dir, "screen.png")
 
-velocity = 150
-sleep_time = 1
+VELOCITY = 80       # Tốc độ swipe
+DIG_WAIT = 1.2      # Chờ animation đào (giây)
+MOVE_WAIT = 0.3     # Chờ nhân vật di chuyển (giây)
+# SLEEP_TIME = 2.5  # Delay giữa frame -- TẮT để chạy nhanh nhất
 
-image_processor = ImageProcessor(model_path, velocity)
-adb_control = AdbHelper("127.0.0.1:5555")
+image_processor = ImageProcessor(model_path, VELOCITY)
 
-MAX_RADIUS = 3000
-tether = VirtualTether(MAX_RADIUS)
+# Device ID tự động đọc từ config.tmp (do run_bot.bat tạo ra)
+# Nếu chạy thủ công không qua bat thì dùng giá trị mặc định trong adb_control.py
+adb_control = AdbHelper()  # Không cần truyền device_id, tự đọc từ config
 
+# ============================================================
+# KIỂM TRA TRƯỚC KHI CHẠY
+# ============================================================
 if not os.path.exists(model_path):
     print(f"[LỖI] Không tìm thấy model: {model_path}")
     print("      Hãy copy file best.pt vào thư mục auto-play/src/")
@@ -49,21 +42,19 @@ if not os.path.exists(model_path):
 if DEBUG:
     if not os.path.exists(screen_path):
         print(f"[LỖI] Không tìm thấy ảnh debug: {screen_path}")
-        print("      Hãy đặt 1 ảnh chụp màn hình game vào auto-play/src/screen.png")
+        print("      Hãy đặt ảnh chụp màn hình game vào auto-play/src/screen.png")
         exit(1)
     print(f"[DEBUG] Đang chạy với ảnh tĩnh: {screen_path}")
 else:
-    print(f"[LIVE] Đang chạy với ADB device: ")
+    print(f"[LIVE] Đang chạy với ADB device: {adb_control.device_id}")
 
-print("Bot started...")
-print("Nhấn Ctrl+C để thoát\n")
+print("Bot started! Nhấn Ctrl+C để thoát\n")
 
+# ============================================================
+# VÒNG LẶP CHÍNH
+# ============================================================
 while True:
     try:
-        if cv.waitKey(1) == ord('q'):
-            cv.destroyAllWindows()
-            break
-
         # Lấy ảnh màn hình
         if DEBUG:
             ss = cv.imread(screen_path)
@@ -74,46 +65,51 @@ while True:
             ss = adb_control.get_screenshot()
             if ss is None:
                 print("[ADB] Chụp màn hình thất bại, thử lại...")
-                sleep(1)
+                sleep(0.5)
                 continue
 
-        print(f"[INFO] Ảnh kích thước: {ss.shape[1]}x{ss.shape[0]}")
+        # Detect mục tiêu
+        result = image_processor.find_target(ss)
 
-        # Xử lý ảnh và tìm mục tiêu
-        try:
-            f_point, t_point, duration, move_vector = image_processor.process_image(ss)
-            tether.add_movement(move_vector[0], move_vector[1])
+        if result is None:
+            print("[SCAN] Không tìm thấy mục tiêu, quét lại...")
+            continue
 
-            if tether.is_out_of_bounds():
-                print(f"[TETHER] CẢNH BÁO: Vượt {int(tether.get_distance())}/{MAX_RADIUS}px! Đang quay về...")
+        f_point, t_point, duration, target_center, target_class = result
+        print(f"[TARGET] {target_class} tại {target_center} | swipe {f_point}→{t_point} | {int(duration)}ms")
 
-                reverse_dx, reverse_dy = -tether.x, -tether.y
-                length = math.sqrt(reverse_dx**2 + reverse_dy**2)
-                norm_dx = (reverse_dx / length) * 80
-                norm_dy = (reverse_dy / length) * 80
-                reverse_t_point = (int(f_point[0] + norm_dx), int(f_point[1] + norm_dy))
+        # Di chuyển tới mục tiêu
+        if not DEBUG:
+            adb_control.swipe(f_point, t_point, int(duration))
 
-                if not DEBUG:
-                    adb_control.swipe(f_point, reverse_t_point, 1000)
-                else:
-                    print(f"[DEBUG] Swipe ngược: {f_point} → {reverse_t_point}")
+        sleep(MOVE_WAIT)
 
-                tether.add_movement(norm_dx, norm_dy)
+        # Tap đào
+        if not DEBUG:
+            adb_control.tap(target_center[0], target_center[1])
 
-            else:
-                if not DEBUG:
-                    adb_control.swipe(f_point, t_point, int(duration))
-                print(f"[SWIPE] {f_point} → {t_point} | duration={int(duration)}ms | roaming={int(tether.get_distance())}/{MAX_RADIUS}")
+        print(f"[DIG] Đang đào {target_class}... chờ {DIG_WAIT}s")
+        sleep(DIG_WAIT)
 
-        except Exception as e:
-            print(f"[SKIP] Không tìm thấy mục tiêu hoặc lỗi: {e}")
-
-        # Trong DEBUG mode chỉ chạy 1 frame rồi dừng chờ
-        if DEBUG:
-            print("\n[DEBUG] Xong 1 frame. Nhấn Enter để chạy lại, hoặc Ctrl+C để thoát.")
-            input()
+        # Kiểm tra đào xong chưa
+        if not DEBUG:
+            ss2 = adb_control.get_screenshot()
         else:
-            sleep(sleep_time)
+            ss2 = cv.imread(screen_path)
+
+        if ss2 is not None:
+            done = image_processor.is_target_cleared(ss2, target_center)
+            if done:
+                print(f"[DONE] Đào xong! Tìm mục tiêu mới...\n")
+            else:
+                print(f"[RETRY] Chưa xong, đào thêm...\n")
+                if not DEBUG:
+                    adb_control.tap(target_center[0], target_center[1])
+                sleep(DIG_WAIT * 0.5)
+
+        if DEBUG:
+            print("\n[DEBUG] Nhấn Enter để chạy lại, Ctrl+C để thoát.")
+            input()
 
     except KeyboardInterrupt:
         print("\nBot stopped by User.")
