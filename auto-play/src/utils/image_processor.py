@@ -32,7 +32,7 @@ IGNORE_CLASSES = {0, 2, 4, 6, 9, 10}  # ad, blood_bottle, grass, green_square, p
 
 class ImageProcessor:
 
-    def __init__(self, model_path, velocity=80):
+    def __init__(self, model_path, velocity=250):
         self.model = YOLO(model=model_path)
         self.velocity = velocity
 
@@ -121,15 +121,15 @@ class ImageProcessor:
         length = math.sqrt(dx**2 + dy**2)
 
         if length == 0:
-            return from_point, from_point, 100
+            return from_point, from_point, 50
 
         # Swipe 50px theo hướng mục tiêu
         norm_dx = (dx / length) * 50
         norm_dy = (dy / length) * 50
         to_point = (int(from_point[0] + norm_dx), int(from_point[1] + norm_dy))
 
-        # Duration dựa trên khoảng cách thật
-        duration = max(200, length / self.velocity * 1000)
+        # Duration: Giảm xuống tối thiểu 50ms, tối đa 600ms để lao đi nhanh
+        duration = min(600, max(50, length / self.velocity * 1000))
 
         return from_point, to_point, duration
 

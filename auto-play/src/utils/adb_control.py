@@ -1,18 +1,13 @@
 import os
 import subprocess
 import cv2 as cv
+import numpy as np
+
 
 def _load_config():
-    """
-    Đọc ADB_PATH và DEVICE_ID từ:
-    1. File config.tmp (được tạo bởi run_bot.bat)
-    2. Biến môi trường
-    3. Giá trị mặc định
-    """
     adb_path = "adb"
     device_id = "127.0.0.1:5555"
 
-    # Tìm config.tmp từ thư mục gốc project (2 cấp trên utils/)
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     config_path = os.path.join(base_dir, "config.tmp")
 
@@ -24,9 +19,8 @@ def _load_config():
                     adb_path = line[len("ADB_PATH="):]
                 elif line.startswith("DEVICE_ID="):
                     device_id = line[len("DEVICE_ID="):]
-        print(f"[CONFIG] Đọc từ config.tmp: ADB={adb_path} | Device={device_id}")
+        print(f"[CONFIG] ADB={adb_path} | Device={device_id}")
     else:
-        # Fallback: biến môi trường
         adb_path = os.environ.get("ADB_PATH", adb_path)
         device_id = os.environ.get("DEVICE_ID", device_id)
         print(f"[CONFIG] Dùng mặc định: ADB={adb_path} | Device={device_id}")
@@ -34,7 +28,6 @@ def _load_config():
     return adb_path, device_id
 
 
-# Load config khi import module
 ADB_PATH, DEFAULT_DEVICE_ID = _load_config()
 
 
@@ -60,34 +53,53 @@ class AdbHelper:
         return subprocess.run(base_cmd, capture_output=True, text=True)
 
     def get_screenshot(self):
-        save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'screen.png')
-
+        """
+        Dùng exec-out để đọc ảnh thẳng từ stdout — không cần pull file,
+        nhanh hơn screencap+pull khoảng 2-3 lần.
+        """
         base_adb = [self.adb]
         if self.device_id:
             base_adb.extend(['-s', self.device_id])
 
-        # Chụp màn hình
-        result = subprocess.run(
-            [*base_adb, 'shell', 'screencap', '-p', '/sdcard/screen.png'],
-            capture_output=True
-        )
-        if result.returncode != 0:
-            print(f"[ADB] Chụp màn hình thất bại: {result.stderr.decode()}")
-            return None
+        try:
+            result = subprocess.run(
+                [*base_adb, 'exec-out', 'screencap', '-p'],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode != 0 or not result.stdout:
+                print(f"[ADB] exec-out thất bại, thử fallback...")
+                return self._get_screenshot_fallback()
 
-        # Pull về máy
-        result = subprocess.run(
-            [*base_adb, 'pull', '/sdcard/screen.png', save_path],
-            capture_output=True
-        )
-        if result.returncode != 0:
-            print(f"[ADB] Pull file thất bại: {result.stderr.decode()}")
-            return None
+            # Decode PNG bytes thẳng từ stdout
+            img_array = np.frombuffer(result.stdout, dtype=np.uint8)
+            img = cv.imdecode(img_array, cv.IMREAD_COLOR)
 
-        # Xoá file tạm
+            if img is None:
+                print("[ADB] Decode ảnh thất bại, thử fallback...")
+                return self._get_screenshot_fallback()
+
+            return img
+
+        except subprocess.TimeoutExpired:
+            print("[ADB] Timeout, thử fallback...")
+            return self._get_screenshot_fallback()
+
+    def _get_screenshot_fallback(self):
+        """
+        Fallback: dùng screencap + pull (chậm hơn nhưng ổn định hơn).
+        """
+        save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'screen.png')
+        base_adb = [self.adb]
+        if self.device_id:
+            base_adb.extend(['-s', self.device_id])
+
+        subprocess.run([*base_adb, 'shell', 'screencap', '-p', '/sdcard/screen.png'], capture_output=True)
+        result = subprocess.run([*base_adb, 'pull', '/sdcard/screen.png', save_path], capture_output=True)
+        if result.returncode != 0:
+            print(f"[ADB] Fallback cũng thất bại!")
+            return None
         subprocess.run([*base_adb, 'shell', 'rm', '/sdcard/screen.png'], capture_output=True)
 
         img = cv.imread(save_path)
-        if img is None:
-            print(f"[ADB] Không đọc được ảnh: {save_path}")
         return img
