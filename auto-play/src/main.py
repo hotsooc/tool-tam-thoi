@@ -11,7 +11,7 @@ from utils.adb_control import AdbHelper
 # True  = dùng ảnh tĩnh screen.png, không cần LDPlayer/ADB
 # False = chạy thật với ADB
 # ============================================================
-DEBUG = True
+DEBUG = False
 
 # ============================================================
 # SETUP
