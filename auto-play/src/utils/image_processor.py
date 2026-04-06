@@ -36,10 +36,9 @@ class ImageProcessor:
         self.model = YOLO(model=model_path)
         self.velocity = velocity
 
-    def find_target(self, img, campfire_mode=False, campfire_radius=250):
+    def find_target_and_player(self, img, campfire_mode=False, campfire_radius=250):
         """
-        Tìm mục tiêu cần đào gần nhất.
-        Nếu campfire_mode = True, chỉ tìm trong bán kính campfire_radius.
+        Tìm (player_box, player_center, target_box, target_center, class_name)
         """
         height, width, _ = img.shape
         center_img = (width // 2, height // 2)
@@ -47,39 +46,89 @@ class ImageProcessor:
         results = self.model(img, conf=0.75)[0]
 
         targets = []
+        player_box = None
+        player_center = center_img # fallback nếu ko thấy player
+
         for r in results.boxes:
             class_id = int(r.cls[0])
-
-            # Chỉ lấy class cần đào
-            if class_id not in DIG_CLASSES:
-                continue
-
             x1, y1, x2, y2 = map(int, r.xyxy[0])
             center = ((x1 + x2) // 2, (y1 + y2) // 2)
-            dist = self._distance(center_img, center)
 
-            # Nếu bật chế độ trại lửa, chỉ lấy mục tiêu trong bán kính
-            if campfire_mode and dist > campfire_radius:
+            if class_id == 9: # player
+                player_box = (x1, y1, x2, y2)
+                # Tính chân player (lấy vị trí thấp hơn một chút)
+                player_center = ((x1 + x2) // 2, y2 - int((y2 - y1) * 0.2))
+                continue
+
+            if class_id not in DIG_CLASSES:
+                continue
+            
+            # Tính khoảng cách từ tâm ảnh cho campfire mode (hoặc từ player tùy ý)
+            dist_to_center = self._distance(center_img, center)
+            if campfire_mode and dist_to_center > campfire_radius:
                 continue
 
             targets.append({
                 'class_id': class_id,
                 'class_name': CLASS_NAMES[class_id],
                 'center': center,
-                'distance': dist,
                 'box': (x1, y1, x2, y2),
             })
 
         if not targets:
-            return None
+            return player_box, player_center, None, None, None
 
-        # Chọn mục tiêu gần nhất
+        # Sắp xếp targets theo khoảng cách tới player
+        for t in targets:
+            t['distance'] = self._distance(player_center, t['center'])
+            
         target = min(targets, key=lambda x: x['distance'])
 
-        # Tính swipe
-        from_point, to_point, duration = self._calc_swipe(img, center_img, target['center'])
+        return player_box, player_center, target['box'], target['center'], target['class_name']
 
-        return (from_point, to_point, duration, target['center'], target['class_name'])
+    def is_player_on_rock(self, player_box, player_center, target_box):
+        """
+        Đánh giá chân player đã đè vào vùng diện tích của viên đá chưa.
+        target_box: (x1, y1, x2, y2)
+        """
+        if not player_box or not target_box:
+            return False
+            
+        px, py = player_center
+        tx1, ty1, tx2, ty2 = target_box
+        
+        # Mở rộng bounding box đá một chút để tolerance
+        padding = 10
+        tx1 -= padding; ty1 -= padding
+        tx2 += padding; ty2 += padding
+        
+        # Kiểm tra chân player có nằm trong vùng đá mở rộng không
+        if tx1 <= px <= tx2 and ty1 <= py <= ty2:
+            return True
+        return False
+
+    def calc_steer_vector(self, img, a, b):
+        """
+        Tính hướng swipe nhưng vuốt thật xa để dùng cho swipe_async (Chạy như bay).
+        """
+        height, _, _ = img.shape
+        joystick_x = int(img.shape[1] * 0.25)
+        joystick_y = int(height * 0.80)
+        from_point = (joystick_x, joystick_y)
+
+        dx = b[0] - a[0]
+        dy = b[1] - a[1]
+        length = math.sqrt(dx**2 + dy**2)
+
+        if length == 0:
+            return from_point, from_point
+
+        # Vuốt lố hẳn ra 300px để nhân vật max speed
+        norm_dx = (dx / length) * 300
+        norm_dy = (dy / length) * 300
+        to_point = (int(from_point[0] + norm_dx), int(from_point[1] + norm_dy))
+        
+        return from_point, to_point
 
     def is_target_cleared(self, img, target_center, radius=40):
         """
@@ -105,36 +154,6 @@ class ImageProcessor:
 
         # Không tìm thấy gì tại vị trí đó → coi như đào xong
         return True
-
-    def _calc_swipe(self, img, a, b):
-        """
-        Tính điểm swipe từ vùng joystick (75% chiều cao) hướng về mục tiêu.
-        Swipe ngắn cố định 50px để điều khiển nhân vật.
-        """
-        height, _, _ = img.shape
-
-        # Điểm bắt đầu swipe = vùng joystick (góc dưới trái màn hình)
-        joystick_x = int(img.shape[1] * 0.25)  # 25% từ trái
-        joystick_y = int(height * 0.80)         # 80% từ trên (vùng joystick)
-        from_point = (joystick_x, joystick_y)
-
-        # Hướng từ tâm màn hình tới mục tiêu
-        dx = b[0] - a[0]
-        dy = b[1] - a[1]
-        length = math.sqrt(dx**2 + dy**2)
-
-        if length == 0:
-            return from_point, from_point, 50
-
-        # Swipe 80px theo hướng mục tiêu (Tăng từ 50px để ổn định hơn)
-        norm_dx = (dx / length) * 80
-        norm_dy = (dy / length) * 80
-        to_point = (int(from_point[0] + norm_dx), int(from_point[1] + norm_dy))
-
-        # Duration: Tối thiểu 150ms để lệnh di chuyển thực sự có tác dụng
-        duration = min(800, max(150, length / self.velocity * 1000))
-
-        return from_point, to_point, duration
 
     def _distance(self, p1, p2):
         return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)

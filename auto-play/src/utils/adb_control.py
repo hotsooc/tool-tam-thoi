@@ -44,6 +44,19 @@ class AdbHelper:
         (x2, y2) = t_point
         self.shell(['input', 'swipe', str(x1), str(y1), str(x2), str(y2), str(duration)])
 
+    def swipe_async(self, f_point, t_point, duration):
+        """
+        Phát lệnh swipe nhưng KHÔNG chờ phản hồi, chạy ngầm để bot quét song song.
+        """
+        (x1, y1) = f_point
+        (x2, y2) = t_point
+        base_cmd = [self.adb]
+        if self.device_id:
+            base_cmd.extend(['-s', self.device_id])
+        base_cmd.extend(['shell', 'input', 'swipe', str(x1), str(y1), str(x2), str(y2), str(duration)])
+        # Dùng Popen để Fire-and-forget
+        subprocess.Popen(base_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     def shell(self, cmd_args):
         base_cmd = [self.adb]
         if self.device_id:
