@@ -19,7 +19,7 @@ from utils.adb_control import AdbHelper
 # ============================================================
 # CONFIGURATION
 # ============================================================
-DEBUG = True
+DEBUG = False
 current_dir = os.path.dirname(os.path.abspath(__file__))
 model_path = os.path.join(current_dir, "best.pt")
 screen_path = os.path.join(current_dir, "screen.png")
