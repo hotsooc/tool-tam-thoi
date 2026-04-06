@@ -98,7 +98,8 @@ class ImageProcessor:
 
     def is_player_on_rock(self, player_box, player_center, target_box):
         """
-        Đánh giá chân player đã vào tâm của viên đá chưa.
+        Đánh giá chân player đã vào vùng đá chưa.
+        Sử dụng khoảng cách 35px để bù đắp quán tính di chuyển từ video3.
         """
         if not player_box or not target_box:
             return False
@@ -106,11 +107,11 @@ class ImageProcessor:
         px, py = player_center
         tx1, ty1, tx2, ty2 = target_box
         
-        # CHỈ CHO PHÉP SAI SỐ 5px quanh tâm đá để đảm bảo đào trúng
         t_center_x = (tx1 + tx2) // 2
         t_center_y = (ty1 + ty2) // 2
         
-        if abs(px - t_center_x) < 15 and abs(py - t_center_y) < 15:
+        # Tăng range lên 35px để "Phanh" kịp lúc
+        if abs(px - t_center_x) < 35 and abs(py - t_center_y) < 35:
             return True
         return False
 
@@ -140,30 +141,35 @@ class ImageProcessor:
         
         return from_point, to_point
 
-    def is_target_cleared(self, img, target_center, radius=40):
+    def is_target_cleared(self, img, target_center, radius=50):
         """
-        Kiểm tra xem vị trí target_center đã trở thành green_square chưa.
-        Quét các object trong vùng bán kính `radius` quanh điểm đó.
+        Kiểm tra xem vị trí đó đã đào xong chưa. 
+        Nếu thấy hòn đá (3, 5) -> Chưa xong.
+        Nếu thấy đất xanh (6) -> Đã xong.
+        Trường hợp không thấy gì (nhân vật che) -> Coi như chưa xong để bot đứng lại chờ đào tiếp.
         """
         results = self.model(img, conf=0.6)[0]
+        found_rock = False
+        found_green = False
 
         for r in results.boxes:
             class_id = int(r.cls[0])
             x1, y1, x2, y2 = map(int, r.xyxy[0])
             center = ((x1 + x2) // 2, (y1 + y2) // 2)
+            dist = self._distance(center, target_center)
 
-            # Nếu vị trí gần target mà là green_square → đào xong
-            if class_id == CLEARED_CLASS:
-                if self._distance(center, target_center) < radius:
-                    return True
+            if dist < radius:
+                if class_id in {3, 5}: # Đá
+                    found_rock = True
+                if class_id == 6:     # Đất xanh
+                    found_green = True
 
-            # Nếu vẫn còn earth/gray tại vị trí đó → chưa xong
-            if class_id in DIG_CLASSES:
-                if self._distance(center, target_center) < radius:
-                    return False
-
-        # Không tìm thấy gì tại vị trí đó → coi như đào xong
-        return True
+        if found_green: return True  # Thấy đất xanh là chắc chắn xong
+        if found_rock: return False  # Còn đá là chưa xong
+        
+        # Nếu không thấy cả hai (do nhân vật che), ta coi như CHƯA XONG 
+        # để bot đào dứt điểm ít nhất 1-2 giây.
+        return False
 
     def _distance(self, p1, p2):
         return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
