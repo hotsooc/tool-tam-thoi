@@ -54,6 +54,7 @@ class BotThread(threading.Thread):
         self.gui_app = gui_app
         self.running = True
         self.daemon = True
+        self.current_target_pos = None # Lưu tọa độ tâm đá đang đào
 
     def run(self):
         custom_log("[BOT] Thread started.")
@@ -85,39 +86,49 @@ class BotThread(threading.Thread):
                 # --- 2. TÌM MỤC TIÊU & PLAYER ---
                 t_start = ptime.perf_counter()
                 campfire_mode = self.gui_app.campfire_var.get()
-                p_box, p_center, t_box, t_center, t_class = self.image_processor.find_target_and_player(ss, campfire_mode, CAMPFIRE_RADIUS)
+                
+                # Truyền current_target_pos vào để ưu tiên bám mục tiêu cũ
+                p_box, p_center, t_box, t_center, t_class = self.image_processor.find_target_and_player(
+                    ss, campfire_mode, CAMPFIRE_RADIUS, prev_target=self.current_target_pos
+                )
                 t_ai = ptime.perf_counter() - t_start
 
                 if t_box is None:
+                    self.current_target_pos = None # Reset mục tiêu nếu mất dấu
                     if campfire_mode:
                         self.gui_app.set_status("Không thấy đá trong vùng trại lửa...")
                     else:
                         self.gui_app.set_status("Đang tìm Mỏ Đá...")
                     continue
+                
+                # Cập nhật mục tiêu hiện tại
+                self.current_target_pos = t_center
 
                 # --- 3. KIỂM TRA ĐÃ TỚI NƠI CHƯA (OVERLAP) ---
                 if self.image_processor.is_player_on_rock(p_box, p_center, t_box):
                     # TỚI NƠI -> ĐẬP
                     self.gui_app.set_status(f"Đang đập {t_class}...")
-                    custom_log(f"ĐÃ TỚI ĐÁ {t_class}. Tap! (Scan img: {t_img*1000:.0f}ms | AI: {t_ai*1000:.0f}ms)")
+                    custom_log(f"CHẠM ĐÁ {t_class}! Đang đào... (AI: {t_ai*1000:.0f}ms)")
                     
                     if not DEBUG:
-                        # Tap trực tiếp lên tâm màn hình vì nhân vật (player) luôn nằm giữa
-                        # Nhưng gõ lên target_center cũng được. Ta tap vào t_center
+                        # Tap dứt khoát để ngắt di chuyển và đào
                         self.adb_control.tap(t_center[0], t_center[1])
                     else:
-                        sleep(0.1) # Simulate đập ảnh tĩnh
+                        sleep(0.1)
                         
                 else:
-                    # CHƯA TỚI NƠI -> TIẾP TỤC "ĐẠP GA" VỀ HƯỚNG TỚI ĐÁ
-                    self.gui_app.set_status(f"Đang lái xe tới {t_class}...")
+                    # CHƯA TỚI NƠI -> LAO TỚI
+                    self.gui_app.set_status(f"Lao tới {t_class}...")
                     from_pt, to_pt = self.image_processor.calc_steer_vector(ss, p_center, t_center)
                     
-                    # Phát lệnh vuốt dài ngầm (duration 1000ms), nhưng vòng lặp sẽ quét đè liên tục
-                    # và phát các lặp swipe mới chồng lên, hoặc khi tới sẽ phát lệnh Tap làm đứt quãng swipe.
-                    custom_log(f"Đang đi tới {t_class} (Scan: {t_img*1000:.0f}ms | AI: {t_ai*1000:.0f}ms)")
+                    dist = math.sqrt((p_center[0]-t_center[0])**2 + (p_center[1]-t_center[1])**2)
+                    
                     if not DEBUG:
-                        self.adb_control.swipe_async(from_pt, to_pt, 1500)
+                        # Giảm thời gian swipe xuống 800ms để tránh bị trôi quá xa khi quét frame sau
+                        swipe_time = 1000 if dist > 100 else 400
+                        self.adb_control.swipe_async(from_pt, to_pt, swipe_time)
+                    
+                    custom_log(f"Đang tới {t_class} (Cách {dist:.0f}px | AI: {t_ai*1000:.0f}ms)")
 
             except Exception as e:
                 custom_log(f"[ERROR] Logic error: {e}")

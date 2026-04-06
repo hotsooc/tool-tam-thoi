@@ -36,9 +36,10 @@ class ImageProcessor:
         self.model = YOLO(model=model_path)
         self.velocity = velocity
 
-    def find_target_and_player(self, img, campfire_mode=False, campfire_radius=250):
+    def find_target_and_player(self, img, campfire_mode=False, campfire_radius=250, prev_target=None):
         """
         Tìm (player_box, player_center, target_box, target_center, class_name)
+        prev_target: Tọa độ (x, y) của mục tiêu cũ để ưu tiên khóa.
         """
         height, width, _ = img.shape
         center_img = (width // 2, height // 2)
@@ -78,18 +79,26 @@ class ImageProcessor:
         if not targets:
             return player_box, player_center, None, None, None
 
-        # Sắp xếp targets theo khoảng cách tới player
-        for t in targets:
-            t['distance'] = self._distance(player_center, t['center'])
-            
-        target = min(targets, key=lambda x: x['distance'])
+        # --- LOGIC KHÓA MỤC TIÊU (STICKY) ---
+        target = None
+        if prev_target:
+            # Tìm hòn đá cũ trong danh sách mới (cho phép lệch 100px do camera scroll)
+            for t in targets:
+                if self._distance(t['center'], prev_target) < 100:
+                    target = t
+                    break
+        
+        if not target:
+            # Nếu ko có mục tiêu cũ, chọn hòn đá gần player nhất
+            for t in targets:
+                t['distance'] = self._distance(player_center, t['center'])
+            target = min(targets, key=lambda x: x['distance'])
 
         return player_box, player_center, target['box'], target['center'], target['class_name']
 
     def is_player_on_rock(self, player_box, player_center, target_box):
         """
-        Đánh giá chân player đã đè vào vùng diện tích của viên đá chưa.
-        target_box: (x1, y1, x2, y2)
+        Đánh giá chân player đã vào tâm của viên đá chưa.
         """
         if not player_box or not target_box:
             return False
@@ -97,19 +106,17 @@ class ImageProcessor:
         px, py = player_center
         tx1, ty1, tx2, ty2 = target_box
         
-        # Mở rộng bounding box đá một chút để tolerance
-        padding = 10
-        tx1 -= padding; ty1 -= padding
-        tx2 += padding; ty2 += padding
+        # CHỈ CHO PHÉP SAI SỐ 5px quanh tâm đá để đảm bảo đào trúng
+        t_center_x = (tx1 + tx2) // 2
+        t_center_y = (ty1 + ty2) // 2
         
-        # Kiểm tra chân player có nằm trong vùng đá mở rộng không
-        if tx1 <= px <= tx2 and ty1 <= py <= ty2:
+        if abs(px - t_center_x) < 15 and abs(py - t_center_y) < 15:
             return True
         return False
 
     def calc_steer_vector(self, img, a, b):
         """
-        Tính hướng swipe nhưng vuốt thật xa để dùng cho swipe_async (Chạy như bay).
+        Tính hướng swipe.
         """
         height, _, _ = img.shape
         joystick_x = int(img.shape[1] * 0.25)
@@ -123,9 +130,12 @@ class ImageProcessor:
         if length == 0:
             return from_point, from_point
 
-        # Vuốt lố hẳn ra 300px để nhân vật max speed
-        norm_dx = (dx / length) * 300
-        norm_dy = (dy / length) * 300
+        # Nếu ở rất gần (< 50px): Vuốt cực ngắn (60px) để "nhích" vào tâm
+        # Nếu ở xa: Vuốt dài (300px) để chạy nhanh
+        steer_len = 300 if length > 50 else 60
+        
+        norm_dx = (dx / length) * steer_len
+        norm_dy = (dy / length) * steer_len
         to_point = (int(from_point[0] + norm_dx), int(from_point[1] + norm_dy))
         
         return from_point, to_point
