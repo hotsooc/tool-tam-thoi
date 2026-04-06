@@ -13,18 +13,19 @@ from utils.adb_control import AdbHelper
 # ============================================================
 # CONFIGURATION
 # ============================================================
-DEBUG = False
+DEBUG = True
 current_dir = os.path.dirname(os.path.abspath(__file__))
 model_path = os.path.join(current_dir, "best.pt")
 screen_path = os.path.join(current_dir, "screen.png")
 
 # Bot settings
 VELOCITY       = 180    
-MOVE_WAIT      = 0.12   # Giảm thêm một chút để mượt hơn
-DIG_BURST      = 2      # Giảm xuống 2 để kiểm tra thường xuyên hơn (mượt hơn)
-DIG_INTERVAL   = 0.02   # Tap cực nhanh trong burst
+MOVE_WAIT      = 0.12   
+DIG_BURST      = 2      
+DIG_INTERVAL   = 0.02   
 DIG_TIMEOUT    = 5.0    
-SCAN_INTERVAL  = 0.05   # Quét liên tục, không có thời gian nghỉ khựng
+SCAN_INTERVAL  = 0.05   
+CAMPFIRE_RADIUS = 250   # Bán kính vùng trại lửa (Điều chỉnh nếu cần)
 
 class BotThread(threading.Thread):
     def __init__(self, image_processor, adb_control, gui_app):
@@ -39,8 +40,11 @@ class BotThread(threading.Thread):
         print("[BOT] Thread started.")
         while self.running:
             try:
-                # Kiểm tra trạng thái từ GUI
-                if not self.gui_app.auto_dig_var.get():
+                # Kiểm tra trạng thái từ GUI: Chạy nếu một trong hai nút được tích
+                is_auto = self.gui_app.auto_dig_var.get()
+                is_campfire = self.gui_app.campfire_var.get()
+                
+                if not is_auto and not is_campfire:
                     self.gui_app.set_status("Tạm dừng...")
                     sleep(0.5)
                     continue
@@ -57,9 +61,15 @@ class BotThread(threading.Thread):
                     continue
 
                 # --- Tìm mục tiêu ---
-                result = self.image_processor.find_target(ss)
+                self.gui_app.set_status("Đang quét màn hình...")
+                campfire_mode = self.gui_app.campfire_var.get()
+                result = self.image_processor.find_target(ss, campfire_mode, CAMPFIRE_RADIUS)
+                
                 if result is None:
-                    self.gui_app.set_status("Không thấy mục tiêu, đang đợi...")
+                    if campfire_mode:
+                        self.gui_app.set_status("Không thấy đá trong vùng trại lửa...")
+                    else:
+                        self.gui_app.set_status("Không thấy mục tiêu...")
                     sleep(SCAN_INTERVAL)
                     continue
 
@@ -142,10 +152,18 @@ class TreasureHunterGUI:
         self.auto_check = ttk.Checkbutton(
             main_frame, 
             text="Auto đào đá", 
-            variable=self.auto_dig_var,
-            command=self.on_toggle_auto
+            variable=self.auto_dig_var
         )
         self.auto_check.pack(pady=5)
+
+        # Checkbox Trại Lửa
+        self.campfire_var = tk.BooleanVar(value=False)
+        self.campfire_check = ttk.Checkbutton(
+            main_frame, 
+            text="Auto đào đá trại lửa", 
+            variable=self.campfire_var
+        )
+        self.campfire_check.pack(pady=5)
 
         # Status Line
         self.status_var = tk.StringVar(value="Đang đợi lệnh...")

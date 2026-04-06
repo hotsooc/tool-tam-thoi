@@ -36,11 +36,10 @@ class ImageProcessor:
         self.model = YOLO(model=model_path)
         self.velocity = velocity
 
-    def find_target(self, img):
+    def find_target(self, img, campfire_mode=False, campfire_radius=250):
         """
         Tìm mục tiêu cần đào gần nhất.
-        Trả về (from_point, to_point, duration, target_center, class_name)
-        hoặc None nếu không tìm thấy.
+        Nếu campfire_mode = True, chỉ tìm trong bán kính campfire_radius.
         """
         height, width, _ = img.shape
         center_img = (width // 2, height // 2)
@@ -58,6 +57,10 @@ class ImageProcessor:
             x1, y1, x2, y2 = map(int, r.xyxy[0])
             center = ((x1 + x2) // 2, (y1 + y2) // 2)
             dist = self._distance(center_img, center)
+
+            # Nếu bật chế độ trại lửa, chỉ lấy mục tiêu trong bán kính
+            if campfire_mode and dist > campfire_radius:
+                continue
 
             targets.append({
                 'class_id': class_id,
