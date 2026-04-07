@@ -54,9 +54,9 @@ class BotThread(threading.Thread):
         self.gui_app = gui_app
         self.running = True
         self.daemon = True
-        self.is_digging = False        # Trạng thái đang đào
-        self.dig_count = 0             # Số lần đã đập hòn đá hiện tại
-        self.t_start_dig = 0           # Thời điểm bắt đầu đào hòn đá này
+        self.is_digging = False        # Đang đứng yên đào
+        self.target_locked_pos = None  # Tâm của hòn đá đang khóa
+        self.t_start_dig = 0           # Thời điểm bắt đầu đào
 
     def run(self):
         custom_log("[BOT] Thread started.")
@@ -85,69 +85,75 @@ class BotThread(threading.Thread):
                     sleep(0.1)
                     continue
 
-                # --- 2. XỬ LÝ TRẠNG THÁI ĐANG ĐÀO (LOCK) ---
-                if self.is_digging and self.current_target_pos:
-                    # Ép đào ít nhất 1.2 giây để tránh việc camera/player che làm mất dấu đá
-                    elapsed_dig = ptime.perf_counter() - self.t_start_dig
+                # --- 2. XỬ LÝ KHI ĐANG ĐÀO (LOCK & DIG) ---
+                if self.is_digging and self.target_locked_pos:
+                    # Kiểm tra xem đất đã xanh chưa (xác nhận đào xong)
+                    is_cleared = self.image_processor.is_target_cleared(ss, self.target_locked_pos)
+                    elapsed = ptime.perf_counter() - self.t_start_dig
                     
-                    # Quét xem đá đã vỡ thành đất xanh chưa
-                    is_cleared = self.image_processor.is_target_cleared(ss, self.current_target_pos)
-                    
-                    if is_cleared and elapsed_dig > 1.2:
-                        custom_log(f"[LOCK] Đã đào xong sau {elapsed_dig:.1f}s. Tìm đá mới.")
+                    # Nếu đã thấy đất xanh HOẶC đứng quá 3s (đề phòng AI check sai)
+                    if is_cleared or elapsed > 3.0:
+                        custom_log(f"[DIG] Đã đào xong mục tiêu sau {elapsed:.1f}s. Reset tìm mỏ mới.")
                         self.is_digging = False
-                        self.current_target_pos = None
-                        self.t_start_dig = 0
+                        self.target_locked_pos = None
+                        continue
                     else:
-                        # Tiếp tục BĂM ĐÁ siêu tốc (Burst)
-                        self.gui_app.set_status(f"Đang đào dứt điểm ({elapsed_dig:.1f}s)...")
-                        if not DEBUG:
-                            # Gõ 3 phát siêu nhanh mỗi frame
-                            for _ in range(3):
-                                self.adb_control.tap(self.current_target_pos[0], self.current_target_pos[1])
-                        
-                        custom_log(f"[LOCK] Đang vung cuốc... (AI check: {'Cleared' if is_cleared else 'Still there'})")
-                        sleep(0.02) 
+                        self.gui_app.set_status(f"Đang đào... ({elapsed:.1f}s)")
+                        # Không phát lệnh di chuyển, nhân vật tự đào
+                        sleep(0.1)
                         continue
 
-                # --- 3. TÌM MỤC TIÊU & PLAYER ---
-                t_start = ptime.perf_counter()
+                # --- 3. TÌM MỤC TIÊU & PLAYER (HÀNH TRÌNH CHUYÊN TÂM) ---
                 campfire_mode = self.gui_app.campfire_var.get()
-                p_box, p_center, t_box, t_center, t_class = self.image_processor.find_target_and_player(
-                    ss, campfire_mode, CAMPFIRE_RADIUS, prev_target=self.current_target_pos
-                )
-                t_ai = ptime.perf_counter() - t_start
 
-                if t_box is None:
-                    self.current_target_pos = None
-                    self.gui_app.set_status("Đang tìm Mỏ Đá...")
+                # BƯỚC A: Nếu chưa có mục tiêu khóa -> Quét toàn màn hình để chọn hòn gần nhất
+                if self.target_locked_pos is None:
+                    p_box, p_center, t_box, t_center, t_class = \
+                        self.image_processor.find_target_and_player(ss, campfire_mode, CAMPFIRE_RADIUS)
+                    
+                    if t_center is None:
+                        self.gui_app.set_status("Đang quét tìm Mỏ Đá...")
+                        continue
+                    
+                    # KHÓA CHẶT MỤC TIÊU NÀY
+                    self.target_locked_pos = t_center
+                    custom_log(f"[LOCK] Đã chọn mỏ {t_class} tại {t_center}. Bắt đầu lao tới!")
+                
+                # BƯỚC B: Khi đã có mục tiêu -> Chỉ quét để xác định vị trí mình và hòn đá đó
+                p_box, p_center, t_box, t_center, t_class = \
+                    self.image_processor.find_target_and_player(ss, prev_target=self.target_locked_pos)
+                
+                if t_center is None:
+                    # Lạc mất mục tiêu cũ (camera trượt quá nhanh hoặc đá vỡ sớm) -> Reset
+                    self.target_locked_pos = None
                     continue
 
-                # --- 4. KIỂM TRA ĐÃ TỚI NƠI CHƯA (OVERLAP) ---
+                # Tính khoảng cách chân nhân vật -> tâm hòn đá
+                dist = math.sqrt((p_center[0]-t_center[0])**2 + (p_center[1]-t_center[1])**2)
+
+                # --- 4. KIỂM TRA ĐÃ TỚI TÂM CHƯA ---
                 if self.image_processor.is_player_on_rock(p_box, p_center, t_box):
-                    # CHẠM ĐÁ!
+                    # ĐÃ TỚI TÂM ĐÁ -> PHANH LẠI NGAY
+                    self.gui_app.set_status("Đã tới tâm. Phanh!")
+                    custom_log(f"[STOP] Tới tâm đá (Cách {dist:.0f}px). Phanh khẩn cấp để đào.")
+                    
+                    if not DEBUG:
+                        # Vị trí nhân vật mặc định ở giữa màn hình (400, 240)
+                        # Tap vào đây sẽ làm nhân vật đứng khựng lại
+                        self.adb_control.tap(400, 240)
+                    
                     self.is_digging = True
-                    self.current_target_pos = t_center
                     self.t_start_dig = ptime.perf_counter()
-                    
-                    self.gui_app.set_status(f"Bắt đầu đào {t_class}...")
-                    custom_log(f"[LOCK] Chạm {t_class}! Phanh & Đào ngay.")
-                    
-                    if not DEBUG:
-                        # Gõ 5 phát thật nhanh để ngắt hoàn toàn quán tính di chuyển
-                        for _ in range(5):
-                            self.adb_control.tap(t_center[0], t_center[1])
                 else:
-                    # CHƯA TỚI NƠI -> LAO TỚI
-                    self.gui_app.set_status(f"Lao tới {t_class}...")
+                    # CHƯA TỚI -> TIẾP TỤC DI CHUYỂN (KHÔNG quét hòn đá khác)
+                    self.gui_app.set_status(f"Lao tới mỏ đã khóa (Còn {dist:.0f}px)...")
                     from_pt, to_pt = self.image_processor.calc_steer_vector(ss, p_center, t_center)
-                    dist = math.sqrt((p_center[0]-t_center[0])**2 + (p_center[1]-t_center[1])**2)
                     
                     if not DEBUG:
-                        swipe_time = 800 if dist > 80 else 300
-                        self.adb_control.swipe_async(from_pt, to_pt, swipe_time)
+                        # Dùng swipe ngắn 400ms để không bị trôi quá lố
+                        self.adb_control.swipe_async(from_pt, to_pt, 400)
                     
-                    custom_log(f"Tới {t_class} (Cách {dist:.0f}px | AI: {t_ai*1000:.0f}ms)")
+                    custom_log(f"-> Moving to {self.target_locked_pos} (Dist: {dist:.0f}px)")
 
             except Exception as e:
                 custom_log(f"[ERROR] Logic error: {e}")

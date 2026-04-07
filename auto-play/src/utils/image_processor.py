@@ -98,8 +98,8 @@ class ImageProcessor:
 
     def is_player_on_rock(self, player_box, player_center, target_box):
         """
-        Đánh giá chân player đã vào vùng đá chưa.
-        Sử dụng khoảng cách 35px để bù đắp quán tính di chuyển từ video3.
+        Kiếm tra xem chân player đã đứng trúng TÂM viên đá chưa.
+        Sử dụng sai số hẹp 15px để đảm bảo đào trúng.
         """
         if not player_box or not target_box:
             return False
@@ -110,8 +110,8 @@ class ImageProcessor:
         t_center_x = (tx1 + tx2) // 2
         t_center_y = (ty1 + ty2) // 2
         
-        # Tăng range lên 35px để "Phanh" kịp lúc
-        if abs(px - t_center_x) < 35 and abs(py - t_center_y) < 35:
+        # CHỈ CHO PHÉP SAI SỐ 15px quanh tâm đá
+        if abs(px - t_center_x) < 15 and abs(py - t_center_y) < 15:
             return True
         return False
 
@@ -143,10 +143,7 @@ class ImageProcessor:
 
     def is_target_cleared(self, img, target_center, radius=50):
         """
-        Kiểm tra xem vị trí đó đã đào xong chưa. 
-        Nếu thấy hòn đá (3, 5) -> Chưa xong.
-        Nếu thấy đất xanh (6) -> Đã xong.
-        Trường hợp không thấy gì (nhân vật che) -> Coi như chưa xong để bot đứng lại chờ đào tiếp.
+        Xác nhận đào xong dựa trên màu Đất Xanh (6).
         """
         results = self.model(img, conf=0.6)[0]
         found_rock = False
@@ -159,16 +156,17 @@ class ImageProcessor:
             dist = self._distance(center, target_center)
 
             if dist < radius:
-                if class_id in {3, 5}: # Đá
+                if class_id in {3, 5}: # Còn đá
                     found_rock = True
-                if class_id == 6:     # Đất xanh
+                if class_id == 6:     # Đã thành đất xanh
                     found_green = True
 
-        if found_green: return True  # Thấy đất xanh là chắc chắn xong
-        if found_rock: return False  # Còn đá là chưa xong
+        # Ưu tiên thấy đất xanh là đào xong
+        if found_green: return True
+        # Nếu vẫn thấy đá thì chắc chắn chưa xong
+        if found_rock: return False
         
-        # Nếu không thấy cả hai (do nhân vật che), ta coi như CHƯA XONG 
-        # để bot đào dứt điểm ít nhất 1-2 giây.
+        # Nếu ko thấy gì (có thể nhân vật che), coi như chưa xong để bot đứng lại chờ thêm 1-2 frame
         return False
 
     def _distance(self, p1, p2):
